@@ -61,6 +61,9 @@ const loadRoutes = () => {
     app.use('/api/auth', require('./routes/auth'));
     app.use('/api/profiles', require('./routes/profiles'));
     app.use('/api/students', require('./routes/students'));
+    // ✅ NEW: Image Upload Route
+    app.use('/api/images', require('./routes/images'));
+    
     // NEW ROUTE ADDED: AWC Data Explorer
     app.use('/', require('./routes/public')); 
 
