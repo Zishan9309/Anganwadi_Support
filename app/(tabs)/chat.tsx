@@ -1,219 +1,275 @@
-
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, ScrollView, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, ScrollView, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ActivityIndicator, Alert, StyleSheet } from 'react-native';
 import { commonStyles, colors } from '../../styles/commonStyles';
 import { useLanguage } from '../../hooks/useLanguage';
 import Header from '../../components/Header';
 import Icon from '../../components/Icon';
 import { ChatMessage } from '../../types';
 
+// 🔑 API CONFIGURATION
+// REPLACE THIS STRING WITH YOUR ACTUAL GROQ API KEY
+const GROQ_API_KEY = "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"; 
+const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
+
+const SYSTEM_PROMPT = `
+You are Anganwadi Sahayak, an expert AI assistant for Anganwadi Workers (AWWs) in India.
+Your goal is to provide accurate, simple, and actionable advice on:
+1. Maternal & Child Health (Nutrition, Immunization, ANC/PNC).
+2. Government Schemes (Poshan Abhiyaan, PMMVY, ICDS).
+3. Early Childhood Care & Education (ECCE).
+4. Daily Operations (Register maintenance, Growth monitoring).
+
+Tone: Respectful, Encouraging, Professional, and Simple.
+Language: Reply in the same language as the user (English, Hindi, or Hinglish).
+Important: If you don't know an answer, say "Please consult your supervisor or MO." Do not make up medical advice.
+`;
+
 export default function ChatScreen() {
-  const { t, language } = useLanguage();
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: '1',
-      text: language === 'hindi' 
-        ? 'नमस्ते! मैं आपका आंगनवाड़ी सहायक हूं। मैं आपकी सरकारी योजनाओं, पोषण, स्वास्थ्य और शिक्षा संबंधी सहायता कर सकता हूं।'
-        : 'Hello! I am your Anganwadi Assistant. I can help you with government schemes, nutrition, health, and education related queries.',
-      isUser: false,
-      timestamp: new Date().toISOString(),
-      language: language,
-    }
-  ]);
-  const [inputText, setInputText] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const scrollViewRef = useRef<ScrollView>(null);
+  const { t, language } = useLanguage();
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [inputText, setInputText] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const hasInitialized = useRef(false);
 
+  // Initialize Greeting
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    if (!hasInitialized.current) {
+        const initialMessage: ChatMessage = {
+            id: '1',
+            text: language === 'hindi' 
+                ? 'नमस्ते! मैं आपकी आंगनवाड़ी सहायिका हूँ। पोषण, टीकाकरण या योजनाओं के बारे में कुछ भी पूछें।'
+                : 'Namaste! I am your Anganwadi Sahayak. Ask me about nutrition, immunization, or schemes.',
+            isUser: false,
+            timestamp: new Date().toISOString(),
+            language: language,
+        };
+        setMessages([initialMessage]);
+        hasInitialized.current = true;
+    }
+  }, [language]);
 
-  const scrollToBottom = () => {
-    setTimeout(() => {
-      scrollViewRef.current?.scrollToEnd({ animated: true });
-    }, 100);
+  useEffect(() => {
+    // Auto-scroll to bottom
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+  }, [messages]);
+
+  // 🤖 AI FETCH FUNCTION
+  const fetchAIResponse = async (userQuery: string) => {
+    try {
+        console.log("Sending request to Groq..."); // Debug Log
+
+        const response = await fetch(GROQ_API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${GROQ_API_KEY}`
+            },
+            body: JSON.stringify({
+                model: "llama-3.3-70b-versatile", // Using the model from your HTML file
+                messages: [
+                    { role: "system", content: SYSTEM_PROMPT },
+                    // Pass conversation history for context (last 5 messages)
+                    ...messages.slice(-5).map(m => ({ 
+                        role: m.isUser ? "user" : "assistant", 
+                        content: m.text 
+                    })),
+                    { role: "user", content: userQuery }
+                ],
+                temperature: 0.7,
+                max_tokens: 500
+            })
+        });
+
+        const data = await response.json();
+
+        // Check for API errors specifically
+        if (!response.ok) {
+            console.error("Groq API Error Response:", data);
+            return `⚠️ Error: ${data.error?.message || "Unknown API error"}`;
+        }
+
+        if (data.error) {
+            console.error("API returned error object:", data.error);
+            return "⚠️ तकनीकी समस्या आ रही है (Technical Issue). Please check API Key.";
+        }
+
+        return data.choices?.[0]?.message?.content || "No response received.";
+
+    } catch (error) {
+        console.error("Network/Fetch Error:", error);
+        return "⚠️ नेटवर्क त्रुटि (Network Error). Please check your internet connection.";
+    }
   };
 
-  const getAIResponse = (userMessage: string): string => {
-    const lowerMessage = userMessage.toLowerCase();
-    
-    // Hindi responses
-    if (language === 'hindi') {
-      if (lowerMessage.includes('पोषण') || lowerMessage.includes('खाना') || lowerMessage.includes('भोजन')) {
-        return 'बच्चों के लिए संतुलित आहार बहुत महत्वपूर्ण है। दाल, चावल, सब्जी, फल और दूध शामिल करें। 6 महीने बाद ठोस आहार शुरू करें। कुपोषण के लक्षण दिखने पर तुरंत डॉक्टर से संपर्क करें।';
-      }
-      
-      if (lowerMessage.includes('टीका') || lowerMessage.includes('वैक्सीन') || lowerMessage.includes('इम्यूनाइजेशन')) {
-        return 'टीकाकरण बच्चों के लिए अत्यंत आवश्यक है। जन्म के समय BCG, OPV, Hepatitis B दें। 6 सप्ताह में DPT, OPV, Hib दें। 9 महीने में खसरा का टीका दें। टीकाकरण चार्ट का पालन करें।';
-      }
-      
-      if (lowerMessage.includes('योजना') || lowerMessage.includes('स्कीम') || lowerMessage.includes('सरकारी')) {
-        return 'मुख्य सरकारी योजनाएं: 1) ICDS - एकीकृत बाल विकास सेवा 2) पोषण अभियान - कुपोषण मुक्ति 3) मध्याह्न भोजन योजना 4) जननी सुरक्षा योजना 5) आयुष्मान भारत। अधिक जानकारी के लिए अपने सुपरवाइजर से संपर्क करें।';
-      }
-      
-      if (lowerMessage.includes('उपस्थिति') || lowerMessage.includes('अटेंडेंस')) {
-        return 'नियमित उपस्थिति बच्चों के विकास के लिए जरूरी है। रोज उपस्थिति दर्ज करें। अनुपस्थित बच्चों के माता-पिता से संपर्क करें। उपस्थिति रिकॉर्ड को सुरक्षित रखें और मासिक रिपोर्ट तैयार करें।';
-      }
-      
-      if (lowerMessage.includes('स्वास्थ्य') || lowerMessage.includes('हेल्थ')) {
-        return 'बच्चों की नियमित स्वास्थ्य जांच कराएं। वजन और लंबाई मापें। बीमारी के लक्षण दिखने पर तुरंत चिकित्सक से संपर्क करें। साफ-सफाई का विशेष ध्यान रखें। हाथ धोने की आदत डलवाएं।';
-      }
-      
-      return 'मैं आपकी सहायता करने के लिए यहां हूं। आप मुझसे पोषण, टीकाकरण, सरकारी योजनाओं, स्वास्थ्य और शिक्षा के बारे में पूछ सकते हैं।';
-    }
-    
-    // English responses
-    if (lowerMessage.includes('nutrition') || lowerMessage.includes('food') || lowerMessage.includes('meal')) {
-      return 'Balanced nutrition is crucial for children. Include dal, rice, vegetables, fruits, and milk. Start solid food after 6 months. Consult doctor immediately if signs of malnutrition appear.';
-    }
-    
-    if (lowerMessage.includes('vaccine') || lowerMessage.includes('immunization')) {
-      return 'Vaccination is essential for children. Give BCG, OPV, Hepatitis B at birth. Give DPT, OPV, Hib at 6 weeks. Give measles vaccine at 9 months. Follow the immunization chart.';
-    }
-    
-    if (lowerMessage.includes('scheme') || lowerMessage.includes('government')) {
-      return 'Main government schemes: 1) ICDS - Integrated Child Development Services 2) POSHAN Abhiyan 3) Mid Day Meal Scheme 4) Janani Suraksha Yojana 5) Ayushman Bharat. Contact your supervisor for more information.';
-    }
-    
-    return 'I am here to help you. You can ask me about nutrition, vaccination, government schemes, health, and education.';
-  };
+  const sendMessage = async () => {
+    if (!inputText.trim() || isTyping) return;
 
-  const sendMessage = async () => {
-    if (!inputText.trim()) return;
+    const userMessageText = inputText.trim();
+    const currentLanguage = language;
 
-    const userMessage: ChatMessage = {
-      id: Date.now().toString(),
-      text: inputText.trim(),
-      isUser: true,
-      timestamp: new Date().toISOString(),
-      language: language,
-    };
+    // 1. Add User Message
+    const userMessage: ChatMessage = {
+      id: Date.now().toString(),
+      text: userMessageText,
+      isUser: true,
+      timestamp: new Date().toISOString(),
+      language: currentLanguage,
+    };
 
-    setMessages(prev => [...prev, userMessage]);
-    setInputText('');
-    setIsTyping(true);
+    setMessages(prev => [...prev, userMessage]);
+    setInputText('');
+    setIsTyping(true);
 
-    // Simulate AI response delay
-    setTimeout(() => {
-      const aiResponse: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        text: getAIResponse(inputText.trim()),
-        isUser: false,
-        timestamp: new Date().toISOString(),
-        language: language,
-      };
+    // 2. Fetch AI Response
+    const aiText = await fetchAIResponse(userMessageText);
 
-      setMessages(prev => [...prev, aiResponse]);
-      setIsTyping(false);
-    }, 1500);
-  };
+    // 3. Add AI Message
+    const aiResponse: ChatMessage = {
+      id: (Date.now() + 1).toString(),
+      text: aiText,
+      isUser: false,
+      timestamp: new Date().toISOString(),
+      language: currentLanguage,
+    };
 
-  return (
-    <KeyboardAvoidingView 
-      style={commonStyles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <Header title={t('chatAssistantTitle')} />
-      
-      <ScrollView
-        ref={scrollViewRef}
-        style={{ flex: 1, padding: 20 }}
-        showsVerticalScrollIndicator={false}
-      >
-        {messages.map((message) => (
-          <View
-            key={message.id}
-            style={{
-              alignSelf: message.isUser ? 'flex-end' : 'flex-start',
-              backgroundColor: message.isUser ? colors.primary : colors.card,
-              padding: 12,
-              borderRadius: 16,
-              marginVertical: 4,
-              maxWidth: '80%',
-              borderWidth: message.isUser ? 0 : 1,
-              borderColor: colors.border,
-            }}
-          >
-            <Text style={{
-              color: message.isUser ? '#FFFFFF' : colors.text,
-              fontSize: 16,
-              lineHeight: 22,
-            }}>
-              {message.text}
-            </Text>
-            <Text style={{
-              color: message.isUser ? 'rgba(255,255,255,0.7)' : colors.textSecondary,
-              fontSize: 12,
-              marginTop: 4,
-            }}>
-              {new Date(message.timestamp).toLocaleTimeString('hi-IN', {
-                hour: '2-digit',
-                minute: '2-digit'
-              })}
-            </Text>
-          </View>
-        ))}
-        
-        {isTyping && (
-          <View
-            style={{
-              alignSelf: 'flex-start',
-              backgroundColor: colors.card,
-              padding: 12,
-              borderRadius: 16,
-              marginVertical: 4,
-              borderWidth: 1,
-              borderColor: colors.border,
-            }}
-          >
-            <Text style={{ color: colors.textSecondary, fontStyle: 'italic' }}>
-              टाइप कर रहा है...
-            </Text>
-          </View>
-        )}
-      </ScrollView>
+    setMessages(prev => [...prev, aiResponse]);
+    setIsTyping(false);
+  };
 
-      {/* Input Area */}
-      <View style={{
+  return (
+    <KeyboardAvoidingView 
+      style={commonStyles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <Header title={t('chatAssistantTitle')} />
+      
+      <ScrollView
+        ref={scrollViewRef}
+        style={{ flex: 1, padding: 20 }}
+        contentContainerStyle={{ paddingBottom: 20 }}
+        showsVerticalScrollIndicator={false}
+      >
+        {messages.map((message) => (
+          <View
+            key={message.id}
+            style={{
+              alignSelf: message.isUser ? 'flex-end' : 'flex-start',
+              backgroundColor: message.isUser ? colors.primary : '#E3F2FD', 
+              padding: 12,
+              borderRadius: 16,
+              marginVertical: 6,
+              maxWidth: '80%',
+              borderBottomRightRadius: message.isUser ? 0 : 16,
+              borderBottomLeftRadius: message.isUser ? 16 : 0,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 1 },
+              shadowOpacity: 0.1,
+              shadowRadius: 2,
+              elevation: 2,
+            }}
+          >
+            <Text style={{
+              color: message.isUser ? '#FFFFFF' : colors.text,
+              fontSize: 16,
+              lineHeight: 22,
+            }}>
+              {message.text}
+            </Text>
+            <Text style={{
+              color: message.isUser ? 'rgba(255,255,255,0.7)' : colors.textSecondary,
+              fontSize: 10,
+              marginTop: 4,
+              alignSelf: 'flex-end'
+            }}>
+              {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </Text>
+          </View>
+        ))}
+        
+        {isTyping && (
+          <View style={styles.typingContainer}>
+            <ActivityIndicator size="small" color={colors.primary} />
+            <Text style={styles.typingText}>Anganwadi Sahayak is typing...</Text>
+          </View>
+        )}
+      </ScrollView>
+
+      {/* Input Area */}
+      <View style={styles.inputContainer}>
+        <TextInput
+          style={styles.input}
+          value={inputText}
+          onChangeText={setInputText}
+          placeholder={t('askQuestion')}
+          placeholderTextColor={colors.textSecondary}
+          multiline
+          textAlignVertical="top"
+        />
+        
+        <TouchableOpacity
+          style={styles.sendButton}
+          onPress={sendMessage}
+          activeOpacity={0.7}
+          disabled={isTyping}
+        >
+          <Icon name="send" size={20} color="#FFFFFF" />
+        </TouchableOpacity>
+      </View>
+    </KeyboardAvoidingView>
+  );
+}
+
+const styles = StyleSheet.create({
+    typingContainer: {
         flexDirection: 'row',
-        padding: 20,
-        backgroundColor: colors.backgroundAlt,
+        alignItems: 'center',
+        padding: 10,
+        backgroundColor: '#f0f0f0',
+        borderRadius: 20,
+        alignSelf: 'flex-start',
+        marginBottom: 10
+    },
+    typingText: {
+        marginLeft: 8,
+        color: colors.textSecondary,
+        fontSize: 12,
+        fontStyle: 'italic'
+    },
+    inputContainer: {
+        flexDirection: 'row',
+        padding: 15,
+        backgroundColor: 'white',
         borderTopWidth: 1,
         borderTopColor: colors.border,
-        alignItems: 'flex-end',
-      }}>
-        <TextInput
-          style={[
-            commonStyles.input,
-            {
-              flex: 1,
-              marginVertical: 0,
-              marginRight: 12,
-              maxHeight: 100,
-            }
-          ]}
-          value={inputText}
-          onChangeText={setInputText}
-          placeholder={t('askQuestion')}
-          placeholderTextColor={colors.textSecondary}
-          multiline
-          textAlignVertical="top"
-        />
-        
-        <TouchableOpacity
-          style={{
-            backgroundColor: colors.primary,
-            padding: 12,
-            borderRadius: 24,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-          onPress={sendMessage}
-          activeOpacity={0.7}
-        >
-          <Icon name="send" size={20} color="#FFFFFF" />
-        </TouchableOpacity>
-      </View>
-    </KeyboardAvoidingView>
-  );
-}
+        alignItems: 'center', 
+    },
+    input: {
+        flex: 1,
+        backgroundColor: colors.background,
+        borderRadius: 25,
+        paddingHorizontal: 20,
+        paddingVertical: 10,
+        fontSize: 16,
+        color: colors.text,
+        marginRight: 10,
+        maxHeight: 100,
+        borderWidth: 1,
+        borderColor: colors.border
+    },
+    sendButton: {
+        backgroundColor: colors.primary,
+        width: 50,
+        height: 50,
+        borderRadius: 25,
+        alignItems: 'center',
+        justifyContent: 'center',
+        elevation: 2,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 2,
+    }
+});
