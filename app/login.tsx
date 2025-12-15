@@ -81,7 +81,7 @@ export default function LoginScreen() {
       const response = isLogin ? await login(email, password) : await register(email, password);
       Alert.alert('Success', isLogin ? (t('loginSuccess') || 'Logged in!') : (t('registerSuccess') || 'Registered!'));
       // Fixed: Navigate to your existing students screen
-      router.replace('/profile');  // Assumes app/(tabs)/students/index.tsx exists
+      router.replace('/home');  // Assumes app/(tabs)/students/index.tsx exists
       // If error, change to: router.replace('/students'); or router.replace('/');
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.error || (t('authError') || 'Auth failed'));
@@ -199,4 +199,5 @@ export default function LoginScreen() {
       </View>
     </KeyboardAvoidingView>
   );
+
 }
